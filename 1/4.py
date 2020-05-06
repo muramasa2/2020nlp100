@@ -24,3 +24,22 @@ for idx, word in zip(second_idx, second_list):
 
 out = sorted(out.items())
 print(out)
+
+############
+# 模範解答 #
+############
+
+def element_symbol(s, number):
+    out_dict = {}
+    splited = re.split('\s', s)
+    for i, w in enumerate(splited, start=1):
+        if i in number:
+            out_dict[w[:1]] = i
+        else:
+            out_dict[w[:2]] = i
+
+    return out_dict
+
+sentence = 'Hi He Lied Because Boron Could Not Oxidize Fluorine. New Nations Might Also Sign Peace Security Clause. Arthur King Can.'
+only_first_number = [1, 5, 6, 7, 8, 9, 15, 16, 19]
+print(element_symbol(sentence, only_first_number))

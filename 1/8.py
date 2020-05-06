@@ -25,3 +25,19 @@ out = cipher(str)
 print(out)
 d_out = cipher(out)
 print(d_out)
+
+############
+# 模範解答 #
+############
+# def chipher(s):
+#     result = ""
+#     for character in s:
+#         result += re.sub(r'[a-z]', chr(219 - ord(character)), character)
+#     return result
+
+def chipher(src):
+    return re.sub(r'[a-z]', lambda m: chr(219 - ord(m.group(0))), src)
+
+sentence = "Hi, Thank you for reading my article!!"
+print(chipher(sentence))
+print(chipher(chipher(sentence)))

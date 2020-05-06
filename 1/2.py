@@ -8,3 +8,13 @@ for idx in range(len(s1)):
 
 out = ''.join(s_list)
 print(out)
+
+############
+# 模範解答 #
+############
+
+def connect_strings(sone, stwo):
+    result = "".join(s1+s2 for s1,s2 in zip(sone, stwo))
+    return result
+
+print(connect_strings("パトカー", "タクシー"))

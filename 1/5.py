@@ -24,3 +24,15 @@ s_gram = sentence_gram(s, 2)
 
 print('word gram:', w_gram)
 print('sentence gram:', s_gram)
+
+############
+# 模範解答 #
+############
+
+def generate_ngram(sentence, N):
+    return [sentence[i:i+N] for i in range(len(sentence)-N+1)]
+
+input_text = "I am an NLPer"
+
+print("単語bi-garm : ", str(generate_ngram(input_text.split(' '), 2)))
+print("文字bi-garm : ", str(generate_ngram(input_text.split(' '), 2)))
