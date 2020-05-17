@@ -13,3 +13,20 @@ fp = FontProperties(fname=r'C:\Windows\Fonts/HGRGE.TTC', size=14)
 plt.bar(range(10), words_cnt)
 plt.xticks(range(10), words_ctx, fontproperties=fp)
 plt.savefig('fig36.jpg')
+
+
+###########
+# 模範解答 #
+###########
+from collections import Counter
+import matplotlib.pyplot as plt
+from q0 import get_neko_morphemes
+
+morphemes_list = get_neko_morphemes()
+
+words = Counter([morpheme["base"] for morphemes in morphemes_list for morpheme in morphemes]).most_common()
+word_name, word_count = list(zip(*words[:10]))
+
+plt.rcParams["font.family"] = "IPAexGothic"
+plt.bar(range(10), word_count, tick_label=word_name)
+plt.savefig("fig36.png")

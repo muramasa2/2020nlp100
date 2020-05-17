@@ -10,3 +10,20 @@ for sentence in wakati_list:
             verb_dict.append(value[1])
 
 print(verb_dict)
+
+
+###########
+# 模範解答 #
+###########
+from q30 import get_neko_morphemes
+
+morphemes_list = get_neko_morphemes()
+
+result = []
+
+for morphemes in morphemes_list:
+    for morpheme in morphemes:
+        if morpheme["pos"] == "動詞":
+            result.append(morpheme["base"])
+
+print(result[:10])
