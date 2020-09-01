@@ -160,6 +160,6 @@ val_dataset = Dataset(val_s, val_y)
 test_dataset = Dataset(test_s, test_y)
 
 model = LSTMClassifier(len(vocab_dict), 300, 50, 4)
-loader = gen_loader(test_dataset, 10, DescendingSampler, False, 0)
+loader = gen_loader(test_dataset, 10, DescendingSampler, False, num_workers=0)
 iter(loader).next()
 model(iter(loader).next()).argmax(dim=-1)

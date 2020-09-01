@@ -19,9 +19,9 @@ from collections import Counter
 
 
 vectors = KeyedVectors.load_word2vec_format('data/GoogleNews-vectors-negative300.bin', binary=True)
-train_X = pd.read_csv('./6/train.txt', sep='\t')
-val_X = pd.read_csv('./6/valid.txt', sep='\t')
-test_X = pd.read_csv('./6/test.txt', sep='\t')
+train_X = pd.read_csv('./6/train.txt', sep='\t')['TITLE'][1:]
+val_X = pd.read_csv('./6/valid.txt', sep='\t')['TITLE'][1:]
+test_X = pd.read_csv('./6/test.txt', sep='\t')['TITLE'][1:]
 
 with open('data/train_s.yaml', 'rb') as f:
     train_s = pickle.load(f)
@@ -59,7 +59,7 @@ counter = Counter([
 vocab_in_train = [
     token
     for token, freq in counter.most_common()
-    if freq >1
+    if freq > 1
 ]
 
 class Dataset(torch.utils.data.Dataset):
@@ -111,7 +111,7 @@ class DescendingSampler(Sampler):
 
 
 class MaxTokensSampler(Sampler):
-    def __init__(self):
+    def __iter__(self):
         self.indices = torch.randperm(len(self.dataset))
         self.indices = self.indices[self.dataset.lengths[self.indices].argsort(descending=True)]
         for batch in self.generate_batches():
@@ -124,7 +124,7 @@ class MaxTokensSampler(Sampler):
         max_len = 0
         for index in self.indices:
             acc += 1
-            this_len = self.dataset.length[index]
+            this_len = self.dataset.lengths[index]
             max_len = max(max_len, this_len)
             if acc * max_len > self.width:
                 batches.append(batch)
@@ -228,7 +228,7 @@ class Predictor:
 
     def send(self, batch):
         for key in batch:
-            batch['key'] = batch['key'].to(self.device)
+            batch[key] = batch[key].to(self.device)
         return batch
 
     def infer(self, batch):
@@ -247,36 +247,43 @@ cnn_vocab_list = ['[PAD]', '[UNK]'] + vocab_in_train
 cnn_vocab_dict = {x:n for n, x in enumerate(cnn_vocab_list)}
 
 
+def preprocessing(text):
+    table = str.maketrans(string.punctuation, ' '*len(string.punctuation))  # str,maketrans('abcd', 'efgh') or str,maketrans({'a':'e', 'b':'f', 'c':'g', 'd':'h'})で置換テーブルつくる
+    # string.punctuation = 英数字以外のアスキー文字のこと ex) !"#$%&'()*+,-./:;<=>?@[\]^_`{|}~
+    text = text.translate(table)
+    text = text.lower()
+    text = re.sub('[0-9]+', '0', text)
+    if text in string.ascii_letters or string.digits:
+        return text
+    else:
+        return str(0)
+
+
 def cnn_sent_to_ids(sent):
-    return torch.tensor([cnn_vocab_dict[x if x in cnn_vocab_dict else ['UNK']] for x in sent], dtype=torch.long)
-
-
-print(train_X[0])
-print(cnn_sent_to_ids(train_X[0]))
+    return torch.tensor([cnn_vocab_dict[x if x in cnn_vocab_dict else '[UNK]'] for x in sent], dtype=torch.long)
 
 
 def cnn_dataset_to_ids(dataset):
-    return [cnn_sent_to_ids(x) for x in dataset]
+    return [cnn_sent_to_ids(preprocessing(x)) for x in dataset]
 
 cnn_train_s = cnn_dataset_to_ids(train_X)
 cnn_val_s = cnn_dataset_to_ids(val_X)
 cnn_test_s = cnn_dataset_to_ids(test_X)
 
-cnn_train_s[:3]
-
 
 class CNNDataset(Dataset):
     def collate(self, xs):
         max_seq_len = max([x['lengths'] for x in xs])
-        src = [torch.cat([x['src'], torch.zeros(max_seq_len - x['length'], dtype=torch.long)], dim=-1) for x in xs]
+        src = [torch.cat([x['src'], torch.zeros(max_seq_len - x['lengths'], dtype=torch.long)], dim=-1) for x in xs]
         src = torch.stack(src)
-        mask = [[1] * x['lengths'] + [0] * (max_seq_len - x['lengths']) for x in xs]
+        mask = [[1] * int(x['lengths']) + [0] * int(max_seq_len - x['lengths']) for x in xs]
         mask = torch.tensor(mask, dtype=torch.long)
         return {
             'src':src,
             'trg':torch.tensor([x['trg'] for x in xs]),
             'mask':mask,
         }
+
 
 cnn_train_dataset = CNNDataset(cnn_train_s, train_y)
 cnn_val_dataset = CNNDataset(cnn_val_s, val_y)
@@ -349,16 +356,15 @@ loaders = (
     gen_maxtokens_loader(cnn_train_dataset, 4000, num_workers=0),
     gen_descending_loader(cnn_val_dataset, 32, num_workers=0),
 )
-
 task = Task()
 optimizer = optim.SGD(model.parameters(), lr=0.05, momentum=0.9, nesterov=True)
 trainer = Trainer(model, loaders, task, optimizer, 10, device)
 trainer.train()
 
-predictor = Predictor(model, gen_loader(cnn_train_dataset, 1), device)
+predictor = Predictor(model, gen_loader(cnn_train_dataset, 1, num_workers=0), device)
 pred = predictor.predict()
 print('学習データでの正解率：', accuracy(train_y, pred))
 
-predictor = Predictor(model, gen_loader(cnn_test_dataset, 1), device)
+predictor = Predictor(model, gen_loader(cnn_test_dataset, 1, num_workers=0), device)
 pred = predictor.predict()
 print('評価データでの正解率：', accuracy(test_y, pred))

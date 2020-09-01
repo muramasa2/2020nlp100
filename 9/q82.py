@@ -204,7 +204,7 @@ class Predictor:
 
     def send(self, batch):
         for key in batch:
-            batch['key'] = batch['key'].to(self.device)
+            batch[key] = batch[key].to(self.device)
         return batch
 
     def infer(self, batch):
@@ -257,10 +257,10 @@ optimizer = optim.SGD(model.parameters(), lr=0.01, momentum=0.9, nesterov=True)
 trainer = Trainer(model, loaders, task, optimizer, 3, device)
 trainer.train()
 
-predictor = Predictor(model, gen_loader(train_dataset, 1), device)
+predictor = Predictor(model, gen_loader(train_dataset, 1, num_workers=0), device)
 pred = predictor.predict()
 print('学習データでの正解率：', accuracy(train_y, pred))
 
-predictor = Predictor(model, gen_loader(test_dataset, 1), device)
+predictor = Predictor(model, gen_loader(test_dataset, 1, num_workers=0), device)
 pred = predictor.predict()
-print('学習データでの正解率：', accuracy(test_y, pred))
+print('テストデータでの正解率：', accuracy(test_y, pred))

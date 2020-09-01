@@ -1,24 +1,21 @@
 import torch
-import torch.nn as nn
-import torch.optim as optim
-import pandas as pd
-from collections import Counter
-import string
-import re
-from collections import Counter
 import pickle
-import torch.utils.data
+import numpy as np
 import random as rd
-import torch.nn.functional as F
+import pandas as pd
+import torch.nn as nn
+import torch.utils.data
+import torch.optim as optim
+from collections import Counter
+from gensim.models import KeyedVectors
 from torch.nn.utils.rnn import pad_sequence as pad
 from torch.nn.utils.rnn import pack_padded_sequence as pack
-from torch.nn.utils.rnn import pad_packed_sequence as unpack
-import numpy as np
-from gensim.models import KeyedVectors
 
 
 vectors = KeyedVectors.load_word2vec_format('data/GoogleNews-vectors-negative300.bin', binary=True)
-
+train_X = pd.read_csv('./6/train.txt', sep='\t')['TITLE'][1:]
+val_X = pd.read_csv('./6/valid.txt', sep='\t')['TITLE'][1:]
+test_X = pd.read_csv('./6/test.txt', sep='\t')['TITLE'][1:]
 
 with open('data/train_s.yaml', 'rb') as f:
     train_s = pickle.load(f)
@@ -46,6 +43,19 @@ train_y = torch.tensor(train_y)
 val_y = torch.tensor(val_y)
 test_y = torch.tensor(test_y)
 
+counter = Counter([
+    x
+    for sent in train_X
+    for x in sent
+])
+
+vocab_in_train = [
+    token
+    for token, freq in counter.most_common()
+    if freq > 1
+]
+
+
 class Dataset(torch.utils.data.Dataset):
     def __init__(self, source, target):
         self.source = source
@@ -65,9 +75,9 @@ class Dataset(torch.utils.data.Dataset):
 
     def collate(self, xs):
         return {
-        'src':pad([x['src'] for x in xs]),
-        'trg':torch.stack([x['trg'] for x in xs], dim=-1),
-        'lengths':torch.stack([x['lengths'] for x in xs], dim=-1)
+            'src':pad([x['src'] for x in xs]),
+            'trg':torch.stack([x['trg'] for x in xs], dim=-1),
+            'lengths':torch.stack([x['lengths'] for x in xs], dim=-1)
         }
 
 
@@ -87,6 +97,7 @@ class Sampler(torch.utils.data.Sampler):
             yield self.indices[index : index + self.width]
             index += self.width
 
+
 class DescendingSampler(Sampler):
     def __init__(self, dataset, width, shuffle = False):
         assert not shuffle
@@ -95,7 +106,7 @@ class DescendingSampler(Sampler):
 
 
 class MaxTokensSampler(Sampler):
-    def __init__(self):
+    def __iter__(self):
         self.indices = torch.randperm(len(self.dataset))
         self.indices = self.indices[self.dataset.lengths[self.indices].argsort(descending=True)]
         for batch in self.generate_batches():
@@ -108,7 +119,7 @@ class MaxTokensSampler(Sampler):
         max_len = 0
         for index in self.indices:
             acc += 1
-            this_len = self.dataset.length[index]
+            this_len = self.dataset.lengths[index]
             max_len = max(max_len, this_len)
             if acc * max_len > self.width:
                 batches.append(batch)
@@ -212,7 +223,7 @@ class Predictor:
 
     def send(self, batch):
         for key in batch:
-            batch['key'] = batch['key'].to(self.device)
+            batch[key] = batch[key].to(self.device)
         return batch
 
     def infer(self, batch):
@@ -257,6 +268,8 @@ def gen_maxtokens_loader(dataset, width, num_workers=0):
                       shuffle=True, num_workers=num_workers)
 
 
+vocab_list = ['[UNK]'] + vocab_in_train
+
 train_dataset = Dataset(train_s, train_y)
 val_dataset = Dataset(val_s, val_y)
 test_dataset = Dataset(test_s, test_y)
@@ -264,8 +277,8 @@ test_dataset = Dataset(test_s, test_y)
 device = torch.device('cpu')
 model = BiLSTMClassifier(len(vocab_dict), 300, 128, 4)
 loaders = (
-    gen_loader(train_dataset, 4000, num_workers=0),
-    gen_loader(val_dataset, 128, num_workers=0),
+    gen_maxtokens_loader(train_dataset, 4000, num_workers=0),
+    gen_descending_loader(val_dataset, 128, num_workers=0),
 )
 init_embed(model.embed)
 task = Task()
@@ -273,10 +286,10 @@ optimizer = optim.SGD(model.parameters(), lr=0.05, momentum=0.9, nesterov=True)
 trainer = Trainer(model, loaders, task, optimizer, 10, device)
 trainer.train()
 
-predictor = Predictor(model, gen_loader(train_dataset, 1), device)
+predictor = Predictor(model, gen_loader(train_dataset, 1, num_workers=0), device)
 pred = predictor.predict()
 print('学習データでの正解率：', accuracy(train_y, pred))
 
-predictor = Predictor(model, gen_loader(test_dataset, 1), device)
+predictor = Predictor(model, gen_loader(test_dataset, 1, num_workers=0), device)
 pred = predictor.predict()
-print('学習データでの正解率：', accuracy(test_y, pred))
+print('テストデータでの正解率：', accuracy(test_y, pred))

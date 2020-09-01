@@ -89,9 +89,9 @@ class Dataset(torch.utils.data.Dataset):
 
     def collate(self, xs):
         return {
-        'src':pad([x['src'] for x in xs]),
-        'trg':torch.stack([x['trg'] for x in xs], dim=-1),
-        'lengths':torch.stack([x['lengths'] for x in xs], dim=-1)
+            'src':pad([x['src'] for x in xs]),
+            'trg':torch.stack([x['trg'] for x in xs], dim=-1),
+            'lengths':torch.stack([x['lengths'] for x in xs], dim=-1)
         }
 
 
@@ -100,7 +100,7 @@ class BertDataset(Dataset):
         max_seq_len = max([x['lengths'] for x in xs])
         src = [torch.cat([x['src'], torch.zeros(max_seq_len - x['lengths'], dtype=torch.long)], dim=-1) for x in xs]
         src = torch.stack(src)
-        mask = [[1] * x['lengths'] + [0] * (max_seq_len - x['lengths']) for x in xs]
+        mask = [[1] * int(x['lengths']) + [0] * int(max_seq_len - x['lengths']) for x in xs]
         mask = torch.tensor(mask, dtype=torch.long)
         return {
             'src':src,
@@ -130,11 +130,10 @@ class Task:
         loss.backward()
         return loss.item()
 
-    def val_step(self, model, batch):
+    def valid_step(self, model, batch):
         with torch.no_grad():
             loss = self.criterion(model(batch), batch['trg'])
         return loss.item()
-
 
 class Trainer:
     def __init__(self, model, loaders, task, optimizer, max_iter, device = None):
@@ -183,7 +182,7 @@ class Predictor:
 
     def send(self, batch):
         for key in batch:
-            batch['key'] = batch['key'].to(self.device)
+            batch[key] = batch[key].to(self.device)
         return batch
 
     def infer(self, batch):
@@ -201,12 +200,10 @@ class Predictor:
 def read_for_bert(filename):
     with open(filename, encoding='utf8') as f:
         dataset = f.read().splitlines()
-    dataset = [line.split('\t') for line in dataset]
-    # print(dataset)
-    dataset_t = [categories.index(line[4]) for line in dataset[1:]]
+    dataset = [line.split('\t') for line in dataset[1:]]
+    dataset_t = [categories.index(line[4]) for line in dataset]
     dataset_X = [torch.tensor(tokenizer.encode(line[1]), dtype=torch.long) for line in dataset]
     return dataset_X, torch.tensor(dataset_t, dtype=torch.long)
-
 
 def accuracy(true, pred):
     return np.mean([t==p for t,p in zip(true, pred)])
@@ -229,6 +226,20 @@ def gen_maxtokens_loader(dataset, width, num_workers=0):
     return gen_loader(dataset, width, sampler = MaxTokensSampler, shuffle = True, num_workers = num_workers)
 
 
+with open('data/train_y.pickle', 'rb') as f:
+    train_y = pickle.load(f)
+
+with open('data/val_y.pickle', 'rb') as f:
+    val_y = pickle.load(f)
+
+with open('data/test_y.pickle', 'rb') as f:
+    test_y = pickle.load(f)
+
+
+train_y = torch.tensor(train_y)
+val_y = torch.tensor(val_y)
+test_y = torch.tensor(test_y)
+
 categories = ['b', 't', 'e', 'm']
 tokenizer = BertTokenizer.from_pretrained('bert-base-cased')
 
@@ -248,13 +259,13 @@ loaders = (
 task = Task()
 optimizer = optim.Adam(model.parameters(), lr=1e-5)
 device = torch.device('cpu')
-trainer = Trainer(model, loaders, task, optimizer, 5, device)
+trainer = Trainer(model, loaders, task, optimizer, max_iter=5, device)
 trainer.train()
 
-predictor = Predictor(model, gen_loader(bert_train_dataset, 1), device)
+predictor = Predictor(model, gen_loader(bert_train_dataset, 1, num_workers=0), device)
 pred = predictor.predict()
-print('学習データでの正解率：', accuracy(train_t, pred))
+print('学習データでの正解率 :', accuracy(train_y, pred))
 
-predictor = Predictor(model, gen_loader(bert_test_dataset, 1), device)
+predictor = Predictor(model, gen_loader(bert_test_dataset, 1, num_workers=0), device)
 pred = predictor.predict()
-print('評価データでの正解率：', accuracy(test_t, pred))
+print('テストデータでの正解率 :', accuracy(test_y, pred))

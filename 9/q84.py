@@ -18,7 +18,9 @@ from gensim.models import KeyedVectors
 
 
 vectors = KeyedVectors.load_word2vec_format('data/GoogleNews-vectors-negative300.bin', binary=True)
-
+train_X = pd.read_csv('./6/train.txt', sep='\t')['TITLE'][1:]
+val_X = pd.read_csv('./6/valid.txt', sep='\t')['TITLE'][1:]
+test_X = pd.read_csv('./6/test.txt', sep='\t')['TITLE'][1:]
 
 with open('data/train_s.yaml', 'rb') as f:
     train_s = pickle.load(f)
@@ -45,6 +47,18 @@ with open('data/test_y.pickle', 'rb') as f:
 train_y = torch.tensor(train_y)
 val_y = torch.tensor(val_y)
 test_y = torch.tensor(test_y)
+
+counter = Counter([
+    x
+    for sent in train_X
+    for x in sent
+])
+
+vocab_in_train = [
+    token
+    for token, freq in counter.most_common()
+    if freq > 1
+]
 
 class Dataset(torch.utils.data.Dataset):
     def __init__(self, source, target):
@@ -95,7 +109,7 @@ class DescendingSampler(Sampler):
 
 
 class MaxTokensSampler(Sampler):
-    def __init__(self):
+    def __iter__(self):
         self.indices = torch.randperm(len(self.dataset))
         self.indices = self.indices[self.dataset.lengths[self.indices].argsort(descending=True)]
         for batch in self.generate_batches():
@@ -108,7 +122,7 @@ class MaxTokensSampler(Sampler):
         max_len = 0
         for index in self.indices:
             acc += 1
-            this_len = self.dataset.length[index]
+            this_len = self.dataset.lengths[index]
             max_len = max(max_len, this_len)
             if acc * max_len > self.width:
                 batches.append(batch)
@@ -121,6 +135,7 @@ class MaxTokensSampler(Sampler):
             batches.append(batch)
         rd.shuffle(batches)
         return batches
+
 
 
 class LSTMClassifier(nn.Module):
@@ -208,7 +223,7 @@ class Predictor:
 
     def send(self, batch):
         for key in batch:
-            batch['key'] = batch['key'].to(self.device)
+            batch[key] = batch[key].to(self.device)
         return batch
 
     def infer(self, batch):
@@ -244,35 +259,37 @@ def gen_loader(dataset, width, sampler=Sampler, shuffle=False, num_workers=8):
 
 
 def gen_descending_loader(dataset, width, num_workers=0):
-    return gen_loader(dataset, width, sampler=DescendingSampler,
-                      shuffle=False, num_workers=num_workers)
-
+    return gen_loader(dataset, width, sampler = DescendingSampler, shuffle = False, num_workers = num_workers)
 
 def gen_maxtokens_loader(dataset, width, num_workers=0):
-    return gen_loader(dataset, width, sampler=MaxTokensSampler,
-                      shuffle=True, num_workers=num_workers)
+    return gen_loader(dataset, width, sampler = MaxTokensSampler, shuffle = True, num_workers = num_workers)
 
+
+vocab_list = ['[UNK]'] + vocab_in_train
+# vocab_dict = {x:n for n, x in enumerate(vocab_list)}
 
 train_dataset = Dataset(train_s, train_y)
 val_dataset = Dataset(val_s, val_y)
 test_dataset = Dataset(test_s, test_y)
 
 device = torch.device('cpu')
-model = LSTMClassifier(len(vocab_dict), 300, 128, 4)
+
 loaders = (
-    gen_loader(train_dataset, 4000, num_workers=0),
-    gen_loader(val_dataset, 128, num_workers=0),
+    gen_maxtokens_loader(train_dataset, 4000, num_workers=0),
+    gen_descending_loader(val_dataset, 128, num_workers=0),
 )
+
+model = LSTMClassifier(len(vocab_dict), 300, 128, 4)
 init_embed(model.embed)
 task = Task()
-optimizer = optim.SGD(model.parameters(), lr=0.01, momentum=0.9, nesterov=True)
+optimizer = optim.SGD(model.parameters(), lr=0.05, momentum=0.9, nesterov=True)
 trainer = Trainer(model, loaders, task, optimizer, 10, device)
 trainer.train()
 
-predictor = Predictor(model, gen_loader(train_dataset, 1), device)
+predictor = Predictor(model, gen_loader(train_dataset, 1, num_workers=0), device)
 pred = predictor.predict()
 print('学習データでの正解率：', accuracy(train_y, pred))
 
-predictor = Predictor(model, gen_loader(test_dataset, 1), device)
+predictor = Predictor(model, gen_loader(test_dataset, 1, num_workers=0), device)
 pred = predictor.predict()
-print('学習データでの正解率：', accuracy(test_y, pred))
+print('テストデータでの正解率：', accuracy(test_y, pred))
